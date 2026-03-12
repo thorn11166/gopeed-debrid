@@ -46,6 +46,7 @@ const _$StatusEnumMap = {
   Status.wait: 'wait',
   Status.error: 'error',
   Status.done: 'done',
+  Status.resolving: 'resolving',
 };
 
 const _$ProtocolEnumMap = {

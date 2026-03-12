@@ -63,6 +63,10 @@ class BuildTaskListView extends GetView {
       return task.status == Status.running;
     }
 
+    bool isResolving() {
+      return task.status == Status.resolving;
+    }
+
     bool isSelect() {
       return selectedTaskIds.contains(task.id);
     }
@@ -283,7 +287,7 @@ class BuildTaskListView extends GetView {
             task.explorer();
           },
         ));
-      } else {
+      } else if (!isResolving()) {
         if (isRunning()) {
           list.add(IconButton(
             icon: const Icon(Icons.pause),
@@ -340,6 +344,9 @@ class BuildTaskListView extends GetView {
     String getProgressText() {
       if (isDone()) {
         return Util.fmtByte(task.meta.res!.size);
+      }
+      if (isResolving()) {
+        return 'cachingWithDebrid'.tr;
       }
       if (task.meta.res == null) {
         return "";
@@ -614,9 +621,11 @@ class BuildTaskListView extends GetView {
                   ),
                   isDone()
                       ? Container()
-                      : LinearProgressIndicator(
-                          value: getProgress(),
-                        ),
+                      : isResolving()
+                          ? const LinearProgressIndicator(value: null)
+                          : LinearProgressIndicator(
+                              value: getProgress(),
+                            ),
                   // Extraction status row
                   if (task.progress.extractStatus != ExtractStatus.none)
                     Builder(builder: (context) {

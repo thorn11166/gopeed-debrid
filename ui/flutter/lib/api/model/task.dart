@@ -4,7 +4,7 @@ import 'meta.dart';
 
 part 'task.g.dart';
 
-enum Status { ready, running, pause, wait, error, done }
+enum Status { ready, running, pause, wait, error, done, resolving }
 
 enum Protocol { http, bt }
 

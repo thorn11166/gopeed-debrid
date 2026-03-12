@@ -867,9 +867,14 @@ class CreateView extends GetView<CreateController> {
         Check if is direct download, there has two ways to direct download
         1. Direct download option is checked
         2. Muli line urls
+        3. Debrid is active and URL is a magnet/torrent (async resolve, no blocking)
         */
         final isMultiLine = urls.length > 1;
-        final isDirect = controller.directDownload.value || isMultiLine;
+        final debridActive = appController.downloaderConfig.value.debrid.active.isNotEmpty;
+        final submitUrlLower = submitUrl.toLowerCase();
+        final isDebridMagnetOrTorrent = debridActive &&
+            (submitUrlLower.startsWith('magnet:') || submitUrlLower.endsWith('.torrent'));
+        final isDirect = controller.directDownload.value || isMultiLine || isDebridMagnetOrTorrent;
         final opt = Options(
           name: isMultiLine ? "" : _renameController.text,
           path: _pathController.text,

@@ -153,6 +153,13 @@ func (s *service) createTorrent(ctx context.Context, magnet string) (int, error)
 }
 
 func (s *service) waitUntilCached(ctx context.Context, torrentID int) (*tbTorrent, error) {
+	// Check immediately in case the torrent is already cached (no initial delay).
+	if torrent, err := s.fetchTorrent(ctx, torrentID); err == nil {
+		if torrent.Cached || torrent.DownloadState == "cached" || torrent.Progress >= 1.0 {
+			return torrent, nil
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():

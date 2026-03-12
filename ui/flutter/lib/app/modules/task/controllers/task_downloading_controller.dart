@@ -8,14 +8,14 @@ class TaskDownloadingController extends TaskListController {
           Status.running,
           Status.pause,
           Status.wait,
-          Status.error
+          Status.error,
+          Status.resolving,
         ], (a, b) {
-          if (a.status == Status.running && b.status != Status.running) {
-            return -1;
-          } else if (a.status != Status.running && b.status == Status.running) {
-            return 1;
-          } else {
-            return b.updatedAt.compareTo(a.updatedAt);
-          }
+          // resolving tasks float to the top alongside running tasks
+          final aActive = a.status == Status.running || a.status == Status.resolving;
+          final bActive = b.status == Status.running || b.status == Status.resolving;
+          if (aActive && !bActive) return -1;
+          if (!aActive && bActive) return 1;
+          return b.updatedAt.compareTo(a.updatedAt);
         });
 }
