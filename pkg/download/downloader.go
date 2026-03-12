@@ -187,7 +187,10 @@ func (d *Downloader) Setup() error {
 			}
 			d.assignFetcherManager(task)
 			initTask(task)
-			if task.Status != base.DownloadStatusDone && task.Status != base.DownloadStatusError {
+			if task.Status == base.DownloadStatusResolving {
+				// App was killed mid-resolve — surface as an error so the user can retry.
+				task.Status = base.DownloadStatusError
+			} else if task.Status != base.DownloadStatusDone && task.Status != base.DownloadStatusError {
 				task.Status = base.DownloadStatusPause
 			}
 		}
@@ -501,17 +504,148 @@ func (d *Downloader) remainRunningCount() int {
 }
 
 func (d *Downloader) CreateDirect(req *base.Request, opts *base.Options) (taskId string, err error) {
-	var fetcher fetcher.Fetcher
-	fetcher, err = d.buildFetcher(req.URL)
+	// If a debrid service is active and this is a magnet/torrent, create an async
+	// resolving task so the UI shows progress immediately instead of blocking.
+	if cfg := d.cfg.Debrid; cfg != nil && cfg.Active != "" {
+		u := strings.ToLower(req.URL)
+		if strings.HasPrefix(u, "magnet:") || strings.HasSuffix(u, ".torrent") {
+			return d.createDebridAsync(req, opts)
+		}
+	}
+
+	var f fetcher.Fetcher
+	f, err = d.buildFetcher(req.URL)
 	if err != nil {
 		return
 	}
-	fetcher.Meta().Req = req
+	f.Meta().Req = req
 	initOpt, err := d.initOptions(opts)
 	if err != nil {
 		return
 	}
-	return d.doCreate(fetcher, initOpt)
+	return d.doCreate(f, initOpt)
+}
+
+// createDebridAsync creates a placeholder task in DownloadStatusResolving state and
+// kicks off a goroutine that calls the debrid service.  The task transitions to
+// running (or error) once the service returns.
+func (d *Downloader) createDebridAsync(req *base.Request, opts *base.Options) (taskId string, err error) {
+	initOpt, err := d.initOptions(opts)
+	if err != nil {
+		return
+	}
+
+	task := NewTask()
+	task.Status = base.DownloadStatusResolving
+	task.Meta = &fetcher.FetcherMeta{
+		Req:  req,
+		Opts: initOpt,
+	}
+	task.Progress = &Progress{}
+	initTask(task)
+
+	if err = d.storage.Put(bucketTask, task.ID, task.clone()); err != nil {
+		return
+	}
+	taskId = task.ID
+
+	d.lock.Lock()
+	d.tasks = append(d.tasks, task)
+	d.lock.Unlock()
+
+	d.emit(EventKeyProgress, task)
+
+	go d.resolveAndStartDebrid(task, req, initOpt)
+	return
+}
+
+// resolveAndStartDebrid calls the debrid service, then transitions the task to
+// running once files are resolved, or to error on failure.
+func (d *Downloader) resolveAndStartDebrid(task *Task, req *base.Request, opts *base.Options) {
+	ctx, cancel := context.WithTimeout(context.Background(), 605*time.Second)
+	defer cancel()
+
+	svc, err := debrid.New(d.cfg.Debrid)
+	if err != nil {
+		d.setDebridError(task, err)
+		return
+	}
+
+	files, err := svc.Resolve(ctx, req.URL)
+	if err != nil {
+		d.setDebridError(task, err)
+		return
+	}
+	if len(files) == 0 {
+		d.setDebridError(task, fmt.Errorf("debrid: no files returned"))
+		return
+	}
+
+	// Build the resolved resource from the returned files.
+	fileInfos := make([]*base.FileInfo, len(files))
+	for i, f := range files {
+		fileInfos[i] = &base.FileInfo{
+			Name: f.Name,
+			Size: f.Size,
+			Req:  &base.Request{URL: f.URL},
+		}
+	}
+	var totalSize int64
+	for _, f := range files {
+		totalSize += f.Size
+	}
+	res := &base.Resource{
+		Name:  files[0].Name,
+		Size:  totalSize,
+		Files: fileInfos,
+	}
+
+	// Build an HTTP fetcher for the actual download.
+	httpFm, err := d.parseFm(files[0].URL)
+	if err != nil {
+		d.setDebridError(task, err)
+		return
+	}
+	httpFetcher := httpFm.Build()
+	d.setupFetcher(httpFm, httpFetcher)
+	httpFetcher.Meta().Req = fileInfos[0].Req
+	httpFetcher.Meta().Opts = opts
+	httpFetcher.Meta().Res = res
+
+	// Swap the task's internals to the resolved HTTP fetcher.
+	task.fetcherManager = httpFm
+	task.fetcher = httpFetcher
+	task.Protocol = httpFm.Name()
+	task.Meta = httpFetcher.Meta()
+	task.Status = base.DownloadStatusReady
+	task.Uploading = false
+
+	// Persist updated task record before starting.
+	d.storage.Put(bucketTask, task.ID, task.clone())
+
+	// Check if there's a running slot; if not, put the task in the wait queue.
+	d.lock.Lock()
+	remainRunningCount := d.remainRunningCount()
+	if remainRunningCount == 0 {
+		task.Status = base.DownloadStatusWait
+		d.waitTasks = append(d.waitTasks, task)
+		d.lock.Unlock()
+		d.storage.Put(bucketTask, task.ID, task.clone())
+		d.emit(EventKeyProgress, task)
+		return
+	}
+	d.doStart(task)
+	d.lock.Unlock()
+}
+
+// setDebridError marks a task as failed and emits the appropriate events.
+func (d *Downloader) setDebridError(task *Task, err error) {
+	d.Logger.Error().Err(err).Msgf("debrid resolve failed, task id: %s", task.ID)
+	task.updateStatus(base.DownloadStatusError)
+	d.storage.Put(bucketTask, task.ID, task.clone())
+	d.emit(EventKeyError, task, err)
+	d.emit(EventKeyFinally, task, err)
+	d.notifyRunning()
 }
 
 func (d *Downloader) CreateDirectBatch(req *base.CreateTaskBatch) (taskId []string, err error) {

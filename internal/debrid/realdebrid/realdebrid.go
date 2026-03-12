@@ -147,6 +147,11 @@ func (s *service) selectFiles(ctx context.Context, torrentID string) error {
 }
 
 func (s *service) waitUntilReady(ctx context.Context, torrentID string) (*rdTorrentInfo, error) {
+	// Check immediately in case already downloaded (no initial delay).
+	if info, err := s.getTorrentInfo(ctx, torrentID); err == nil && info.Status == "downloaded" {
+		return info, nil
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
