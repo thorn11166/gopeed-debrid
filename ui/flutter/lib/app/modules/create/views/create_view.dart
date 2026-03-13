@@ -144,6 +144,19 @@ class CreateView extends GetView<CreateController> {
             optionsHandlers[protocol]?.call();
           }
         }
+
+        // Auto-submit magnet/torrent links when debrid is active — no need
+        // for the user to manually press Confirm for a one-click debrid flow.
+        if (protocol == Protocol.bt) {
+          final appController = Get.find<AppController>();
+          final debridActive =
+              appController.downloaderConfig.value.debrid.active.isNotEmpty;
+          if (debridActive) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _doConfirm();
+            });
+          }
+        }
       }
     } else if (_urlController.text.isEmpty) {
       // read clipboard

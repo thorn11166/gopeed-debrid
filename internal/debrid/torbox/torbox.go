@@ -155,7 +155,7 @@ func (s *service) createTorrent(ctx context.Context, magnet string) (int, error)
 func (s *service) waitUntilCached(ctx context.Context, torrentID int) (*tbTorrent, error) {
 	// Check immediately in case the torrent is already cached (no initial delay).
 	if torrent, err := s.fetchTorrent(ctx, torrentID); err == nil {
-		if torrent.Cached || torrent.DownloadState == "cached" || torrent.Progress >= 1.0 {
+		if s.torrentReady(torrent) {
 			return torrent, nil
 		}
 	}
@@ -172,10 +172,25 @@ func (s *service) waitUntilCached(ctx context.Context, torrentID int) (*tbTorren
 			// transient — keep polling
 			continue
 		}
-		if torrent.Cached || torrent.DownloadState == "cached" || torrent.Progress >= 1.0 {
+		if s.torrentReady(torrent) {
 			return torrent, nil
 		}
 	}
+}
+
+// torrentReady returns true when a TorBox torrent is fully available for download.
+// TorBox uses several terminal states: the boolean "cached" field, download_state
+// values "cached" (already in cache) or "completed" (just finished downloading),
+// or progress reaching 1.0 (100%).
+func (s *service) torrentReady(t *tbTorrent) bool {
+	if t.Cached {
+		return true
+	}
+	switch t.DownloadState {
+	case "cached", "completed", "paused": // "paused" after seeding = fully downloaded
+		return true
+	}
+	return t.Progress >= 1.0
 }
 
 func (s *service) fetchTorrent(ctx context.Context, torrentID int) (*tbTorrent, error) {
