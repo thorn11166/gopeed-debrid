@@ -21,14 +21,13 @@ class TaskView extends GetView<TaskController> {
   Widget build(BuildContext context) {
     final selectTask = controller.selectTask;
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
+    return Scaffold(
         key: controller.scaffoldKey,
         appBar: PreferredSize(
             preferredSize: const Size.fromHeight(56),
             child: AppBar(
               bottom: TabBar(
+                controller: controller.tabController,
                 tabs: const [
                   Tab(
                     icon: Icon(Icons.file_download),
@@ -58,8 +57,9 @@ class TaskView extends GetView<TaskController> {
                 },
               ),
             )),
-        body: const TabBarView(
-          children: [
+        body: TabBarView(
+          controller: controller.tabController,
+          children: const [
             TaskDownloadingView(),
             TaskDownloadedView(),
           ],
@@ -103,7 +103,6 @@ class TaskView extends GetView<TaskController> {
                 ],
               )),
         ),
-      ),
     );
   }
 

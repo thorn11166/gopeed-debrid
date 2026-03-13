@@ -135,6 +135,21 @@ func (s *service) createTorrent(ctx context.Context, magnet string) (int, error)
 		return 0, err
 	}
 	if !resp.Success {
+		// TorBox returns DOWNLOAD_ALREADY_EXISTS when the magnet was previously
+		// added.  The existing torrent ID is included in the error response data
+		// so we can still poll it for completion.
+		if resp.Detail == "DOWNLOAD_ALREADY_EXISTS" || resp.Error == "DOWNLOAD_ALREADY_EXISTS" {
+			var data tbCreateData
+			if err := json.Unmarshal(resp.Data, &data); err == nil {
+				id := data.TorrentID
+				if id == 0 {
+					id = data.ID
+				}
+				if id != 0 {
+					return id, nil
+				}
+			}
+		}
 		return 0, fmt.Errorf("%s", s.errMsg(resp))
 	}
 

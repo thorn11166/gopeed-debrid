@@ -99,7 +99,7 @@ class AppController extends GetxController with WindowListener, TrayListener {
     _initWindows().onError((error, stackTrace) =>
         logger.w("initWindows error", error, stackTrace));
         
-    if (Util.isDesktop()) {
+    if (Util.isDesktop() || Util.isMobile()) {
       Get.put(NotificationService());
     }
 

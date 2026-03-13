@@ -28,6 +28,7 @@ import '../../../views/directory_selector.dart';
 import '../../../views/file_tree_view.dart';
 import '../../app/controllers/app_controller.dart';
 import '../../history/views/history_view.dart';
+import '../../task/controllers/task_controller.dart';
 import '../controllers/create_controller.dart';
 
 class CreateView extends GetView<CreateController> {
@@ -906,6 +907,10 @@ class CreateView extends GetView<CreateController> {
               opts: opt,
             ));
           }));
+          // Ensure the Downloading tab is visible when returning to the task list.
+          if (Get.isRegistered<TaskController>()) {
+            Get.find<TaskController>().showDownloadingTab();
+          }
           Get.rootDelegate.offNamed(Routes.TASK);
         } else {
           final rr = await resolve(ResolveTask(

@@ -111,6 +111,10 @@ type Downloader struct {
 	// Key: fullBaseName (e.g., "/path/archive.7z"), Value: taskID that claimed it
 	claimedExtractions sync.Map
 
+	// debridCancels holds in-flight debrid resolution cancel funcs keyed by task ID.
+	// Entries are added in createDebridAsync and removed when resolution completes or fails.
+	debridCancels sync.Map // map[string]context.CancelFunc
+
 	extensions []*Extension
 }
 
@@ -555,15 +559,21 @@ func (d *Downloader) createDebridAsync(req *base.Request, opts *base.Options) (t
 
 	d.emit(EventKeyProgress, task)
 
-	go d.resolveAndStartDebrid(task, req, initOpt)
+	ctx, cancel := context.WithTimeout(context.Background(), 605*time.Second)
+	d.debridCancels.Store(task.ID, cancel)
+	go d.resolveAndStartDebrid(ctx, task, req, initOpt)
 	return
 }
 
 // resolveAndStartDebrid calls the debrid service, then transitions the task to
 // running once files are resolved, or to error on failure.
-func (d *Downloader) resolveAndStartDebrid(task *Task, req *base.Request, opts *base.Options) {
-	ctx, cancel := context.WithTimeout(context.Background(), 605*time.Second)
-	defer cancel()
+func (d *Downloader) resolveAndStartDebrid(ctx context.Context, task *Task, req *base.Request, opts *base.Options) {
+	defer func() {
+		// Remove the cancel func now that resolution is complete (success or error).
+		if v, ok := d.debridCancels.LoadAndDelete(task.ID); ok {
+			v.(context.CancelFunc)()
+		}
+	}()
 
 	svc, err := debrid.New(d.cfg.Debrid)
 	if err != nil {
@@ -897,6 +907,10 @@ func (d *Downloader) Delete(filter *TaskFilter, force bool) (err error) {
 	}()
 
 	for _, task := range deleteTasksPtr {
+		// Cancel any in-flight debrid resolution for this task.
+		if v, ok := d.debridCancels.LoadAndDelete(task.ID); ok {
+			v.(context.CancelFunc)()
+		}
 		err = d.doDelete(task, force)
 		if err != nil {
 			return
@@ -921,6 +935,9 @@ func (d *Downloader) deleteAll(force bool) (err error) {
 	}()
 
 	for _, task := range deleteTasksTemp {
+		if v, ok := d.debridCancels.LoadAndDelete(task.ID); ok {
+			v.(context.CancelFunc)()
+		}
 		if err = d.doDelete(task, force); err != nil {
 			return
 		}

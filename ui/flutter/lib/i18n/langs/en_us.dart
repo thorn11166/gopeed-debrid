@@ -217,6 +217,7 @@ const enUS = {
     'desktopNotification': 'Desktop Notifications',
     'notificationTaskDone': 'Task completed',
     'notificationTaskError': 'Task error',
+    'notificationDebridCached': 'Cached — download starting',
     'cachingWithDebrid': 'Caching with debrid…',
   },
 };

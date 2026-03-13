@@ -29,9 +29,12 @@ class NotificationService extends GetxService {
   Future<void> _initNotifications() async {
     const DarwinInitializationSettings initializationSettingsDarwin =
         DarwinInitializationSettings(
-            requestAlertPermission: false,
+            requestAlertPermission: true,
             requestBadgePermission: false,
-            requestSoundPermission: false);
+            requestSoundPermission: true);
+
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
 
     final LinuxInitializationSettings initializationSettingsLinux =
         LinuxInitializationSettings(
@@ -63,6 +66,8 @@ class NotificationService extends GetxService {
 
     final InitializationSettings initializationSettings =
         InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsDarwin,
       macOS: initializationSettingsDarwin,
       linux: initializationSettingsLinux,
       windows: initializationSettingsWindows,
@@ -71,6 +76,14 @@ class NotificationService extends GetxService {
     await flutterLocalNotificationsPlugin.initialize(
       settings: initializationSettings,
     );
+
+    // Request Android 13+ notification permission
+    if (Util.isAndroid()) {
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
+    }
   }
 
   @override
@@ -83,7 +96,12 @@ class NotificationService extends GetxService {
     _timer = Timer.periodic(const Duration(seconds: 2), (timer) async {
       try {
         final config = appController.downloaderConfig.value;
-        if (!config.extra.desktopNotification) {
+        // On desktop, respect the desktopNotification toggle.
+        // On mobile, always show debrid cache-complete notifications.
+        final desktopNotificationsEnabled =
+            Util.isDesktop() && config.extra.desktopNotification;
+        final mobileNotificationsEnabled = Util.isMobile();
+        if (!desktopNotificationsEnabled && !mobileNotificationsEnabled) {
           return;
         }
 
@@ -94,6 +112,7 @@ class NotificationService extends GetxService {
           Status.wait,
           Status.error,
           Status.done,
+          Status.resolving,
         ]);
 
         for (var task in tasks) {
@@ -109,6 +128,15 @@ class NotificationService extends GetxService {
             } else if (currentStatus == Status.error) {
               _showNotification(
                 title: 'notificationTaskError'.tr,
+                body: task.name,
+              );
+            } else if (prevStatus == Status.resolving &&
+                (currentStatus == Status.running ||
+                    currentStatus == Status.ready ||
+                    currentStatus == Status.wait)) {
+              // Debrid finished caching — download is starting.
+              _showNotification(
+                title: 'notificationDebridCached'.tr,
                 body: task.name,
               );
             }
@@ -130,8 +158,18 @@ class NotificationService extends GetxService {
 
   Future<void> _showNotification(
       {required String title, required String body}) async {
-    const NotificationDetails notificationDetails = NotificationDetails(
-      macOS: DarwinNotificationDetails(),
+    const androidDetails = AndroidNotificationDetails(
+      'gopeed_debrid',
+      'Gopeed Downloads',
+      channelDescription: 'Download progress and debrid cache notifications',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const iosDetails = DarwinNotificationDetails();
+    const notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+      macOS: iosDetails,
       linux: LinuxNotificationDetails(),
       windows: WindowsNotificationDetails(),
     );
