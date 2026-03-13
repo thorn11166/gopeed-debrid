@@ -838,8 +838,8 @@ class CreateView extends GetView<CreateController> {
         final urls = Util.textToLines(submitUrl);
 
         // Check if there is a pending update task (only for single URL)
+        final appController = Get.find<AppController>();
         if (urls.length == 1) {
-          final appController = Get.find<AppController>();
           final pendingTask = appController.pendingUpdateTask.value;
           if (pendingTask != null) {
             final shouldUpdate = await _showPendingUpdateDialog(
